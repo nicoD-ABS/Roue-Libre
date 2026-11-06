@@ -2,7 +2,10 @@
   "use strict";
 
   var CFG = window.RL_CONFIG;
-  var store = window.RL_STORE;
+  var ASSOC = CFG.ASSOCIATION || {};
+  var BRAND = ASSOC.name || "Alps Bike Society";
+  var FIREBASE_MODE = CFG.BACKEND === "firebase";
+  var store = null;
 
   var $ = function (s) { return document.querySelector(s); };
   var esc = function (s) {
@@ -12,9 +15,14 @@
   };
 
   var me = "";
+  var code = "";
   var tab = "rides";
+  var view = ""; // "join" : page « Rejoindre » affichée avant connexion
   var data = { rides: [], projects: [] };
-  try { me = localStorage.getItem("rl_name") || ""; } catch (e) {}
+  try {
+    me = localStorage.getItem("rl_name") || "";
+    code = localStorage.getItem("rl_code") || "";
+  } catch (e) {}
 
   /* ---------- Utilitaires ---------- */
   function pad(n) { return n < 10 ? "0" + n : "" + n; }
@@ -39,30 +47,117 @@
   }
   function has(a, n) { return a.indexOf(n) > -1; }
   function num(v) { var n = parseInt(v, 10); return isNaN(n) ? null : n; }
+  function save(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
+  function drop(key) { try { localStorage.removeItem(key); } catch (e) {} }
+  function eyebrow() { return '<p class="eyebrow">' + esc(BRAND) + "</p>"; }
+  function setErr(msg, id) { var el = $("#" + (id || "e")); if (el) el.textContent = msg; }
 
-  /* ---------- Connexion ---------- */
-  function login() {
+  var toastTimer = null;
+  function flash(msg) {
+    var el = $("#toast");
+    if (!el) { el = document.createElement("div"); el.id = "toast"; el.className = "toast"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove("show"); }, 3500);
+  }
+
+  /* ---------- Écrans avant connexion ---------- */
+  function fatal(msg) {
+    $("#app").innerHTML = '<div class="login"><div>' + eyebrow() + "<h1>Roue libre</h1><p class=\"sub\">" + esc(msg) +
+      '</p></div><button class="cta" data-act="retry">Réessayer</button></div>';
+  }
+
+  function login(err) {
     $("#app").innerHTML =
-      '<div class="login"><div><h1>Roue libre</h1><p class="sub">Les sorties vélo du groupe, sans notifications. Tu regardes quand tu veux.</p></div>' +
+      '<div class="login"><div>' + eyebrow() + '<h1>Roue libre</h1><p class="sub">Les sorties vélo de l’' + esc(BRAND) +
+      ". Sans notifications : tu regardes quand tu veux.</p></div>" +
       '<label class="field">Ton prénom<input id="n" autocomplete="given-name" placeholder="Julien"></label>' +
-      '<label class="field">Code du groupe<input id="c" type="password" autocomplete="off" placeholder="Code reçu de l’organisateur"></label>' +
-      '<div class="err" id="e"></div><button class="cta" data-act="login">Entrer</button>' +
-      (CFG.BACKEND === "local" ? '<p class="note">Mode démo : les données restent dans ce téléphone. Le code est « ' + esc(CFG.GROUP_CODE) + ' ».</p>' : "") +
+      (code ? "" : '<label class="field">Code du groupe<input id="c" type="password" autocomplete="off" autocapitalize="none" placeholder="Code reçu de l’organisateur"></label>') +
+      '<div class="err" id="e">' + esc(err || "") + '</div><button class="cta" data-act="login">Entrer</button>' +
+      '<button class="link" data-act="join-public">Pas encore membre ? Rejoindre l’' + esc(BRAND) + "</button>" +
+      (code ? '<button class="link" data-act="forget-code">Changer de code du groupe</button>' : "") +
+      (FIREBASE_MODE ? "" : '<p class="note">Mode démo : les données restent dans ce téléphone. Le code est « ' + esc(CFG.GROUP_CODE) + " ».</p>") +
       "</div>";
   }
   function doLogin() {
     var n = $("#n").value.trim();
-    var c = $("#c").value.trim().toLowerCase();
-    if (!n) { $("#e").textContent = "Indique ton prénom."; return; }
-    if (c !== String(CFG.GROUP_CODE).toLowerCase()) { $("#e").textContent = "Code incorrect."; return; }
-    me = n;
-    try { localStorage.setItem("rl_name", me); } catch (e) {}
-    renderShell();
+    var c = code || ($("#c") ? $("#c").value.trim() : "");
+    if (!n) { setErr("Indique ton prénom."); return; }
+    if (!c) { setErr("Indique le code du groupe."); return; }
+    setErr("Vérification…");
+    store.checkCode(c).then(function (ok) {
+      if (!ok) { setErr("Code incorrect."); return; }
+      me = n; code = c;
+      save("rl_name", me); save("rl_code", code);
+      start();
+    }).catch(function (e) {
+      console.error(e);
+      setErr("Connexion impossible. Vérifie ta connexion internet.");
+    });
   }
   function logout() {
-    me = "";
-    try { localStorage.removeItem("rl_name"); } catch (e) {}
+    me = ""; drop("rl_name");
+    view = "";
     renderShell();
+  }
+  function forgetCode() {
+    me = ""; code = ""; drop("rl_name"); drop("rl_code");
+    location.reload();
+  }
+
+  // Création du groupe : ouvre l'app avec « #creer » à la fin de l'adresse.
+  function createScreen() {
+    $("#app").innerHTML =
+      '<div class="login"><div>' + eyebrow() + "<h1>Créer le groupe</h1>" +
+      '<p class="sub">À faire une seule fois, par l’organisateur. Le code choisi sert à entrer dans l’app et à protéger vos données : il doit être long et difficile à deviner (par exemple trois mots et un nombre).</p></div>' +
+      '<label class="field">Code du groupe (8 caractères ou plus)<input id="cc" autocomplete="off" autocapitalize="none" placeholder="ex. col-croix-fry-2027"></label>' +
+      '<div class="err" id="ce"></div><button class="cta" data-act="create-group">Créer le groupe</button>' +
+      '<button class="link" data-act="create-done">Retour à l’accueil</button></div>';
+  }
+  function doCreate() {
+    var c = $("#cc").value.trim();
+    if (c.replace(/[^A-Za-z0-9_-]/g, "").length < 8) { setErr("8 caractères ou plus : lettres, chiffres ou tirets.", "ce"); return; }
+    setErr("Création…", "ce");
+    store.checkCode(c).then(function (exists) {
+      if (exists) { setErr("Ce code existe déjà. Choisis-en un autre.", "ce"); return; }
+      return store.createGroup(c).then(function () {
+        code = c; save("rl_code", code);
+        $("#app").innerHTML =
+          '<div class="login"><div>' + eyebrow() + "<h1>Groupe créé</h1>" +
+          '<p class="sub">Voici le code à donner à tes amis, de préférence de vive voix ou en message privé :</p></div>' +
+          '<p class="code">' + esc(c) + "</p>" +
+          '<button class="cta" data-act="create-done">Continuer</button></div>';
+      });
+    }).catch(function (e) {
+      console.error(e);
+      setErr("Création impossible. Vérifie ta connexion et les règles Firestore.", "ce");
+    });
+  }
+  function leaveCreate() {
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+    view = "";
+    if (me && code) start(); else login();
+  }
+
+  /* ---------- Page « Rejoindre » ---------- */
+  function joinHtml() {
+    var points = (ASSOC.points || []).map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("");
+    var btns = "";
+    if (ASSOC.joinUrl && /^https:\/\//.test(ASSOC.joinUrl)) {
+      btns += '<a class="cta" href="' + esc(ASSOC.joinUrl) + '" target="_blank" rel="noopener">' + esc(ASSOC.joinLabel || "Adhérer") + "</a>";
+    }
+    if (ASSOC.contactEmail) {
+      btns += '<a class="cta alt" href="mailto:' + esc(ASSOC.contactEmail) + '">Nous écrire</a>';
+    }
+    return '<div class="card join"><div class="when">Rejoindre l’' + esc(BRAND) + "</div>" +
+      (ASSOC.pitch ? '<p class="pitch">' + esc(ASSOC.pitch) + "</p>" : "") +
+      (points ? '<ul class="points">' + points + "</ul>" : "") +
+      (btns || '<p class="none">Les infos d’adhésion arrivent bientôt.</p>') + "</div>";
+  }
+  function publicJoin() {
+    $("#app").innerHTML = "<header>" + eyebrow() + "<h1>Roue libre</h1></header>" + joinHtml() +
+      '<button class="link" data-act="back-login">← Retour à la connexion</button>';
   }
 
   /* ---------- Sorties ---------- */
@@ -103,14 +198,15 @@
   }
   function addRide() {
     var d = $("#fd").value, t = $("#ft").value, pl = $("#fp").value.trim();
-    if (!d || !t || !pl) { $("#fe").textContent = "Jour, heure et lieu sont nécessaires."; return null; }
+    if (!d || !t || !pl) { setErr("Jour, heure et lieu sont nécessaires.", "fe"); return null; }
     return store.addRide({
       date: d, time: t, place: pl,
       km: num($("#fk").value), dp: num($("#fh").value),
       pace: $("#fa").value, by: me, go: [me], maybe: []
     }).then(function (res) {
-      $("#rideForm").open = false;
-      ["fd", "fp", "fk", "fh"].forEach(function (id) { $("#" + id).value = ""; });
+      var f = $("#rideForm");
+      if (f) f.open = false;
+      ["fd", "fp", "fk", "fh"].forEach(function (id) { var el = $("#" + id); if (el) el.value = ""; });
       return res;
     });
   }
@@ -119,7 +215,7 @@
   function projCard(p) {
     var inter = has(p.interested, me);
     return '<div class="card proj"><div class="pt"><div class="when">' + esc(p.title) + '</div><p class="where">' +
-      esc(p.where) + (p.when ? " · " + esc(p.when) : "") + "</p></div><div class=\"pb\">" +
+      esc(p.where) + (p.where && p.when ? " · " : "") + esc(p.when) + '</p></div><div class="pb">' +
       (p.pitch ? '<p class="pitch">' + esc(p.pitch) + "</p>" : "") +
       '<div class="people">' + p.interested.map(function (n) { return av(n, false); }).join("") +
       '<span class="none">' + p.interested.length + " intéressé" + (p.interested.length > 1 ? "s" : "") + "</span></div>" +
@@ -148,47 +244,59 @@
   }
   function addProject() {
     var title = $("#pt").value.trim();
-    if (!title) { $("#pe").textContent = "Donne au moins un titre."; return null; }
+    if (!title) { setErr("Donne au moins un titre.", "pe"); return null; }
     var dates = $("#pd").value.split(",").map(function (s) { return s.trim(); }).filter(Boolean)
       .map(function (l) { return { l: l, v: [] }; });
     return store.addProject({
       title: title, where: $("#pw").value.trim(), when: $("#pq").value.trim(),
       pitch: $("#pp").value.trim(), by: me, interested: [me], dates: dates
     }).then(function (res) {
-      $("#projForm").open = false;
-      ["pt", "pw", "pq", "pp", "pd"].forEach(function (id) { $("#" + id).value = ""; });
+      var f = $("#projForm");
+      if (f) f.open = false;
+      ["pt", "pw", "pq", "pp", "pd"].forEach(function (id) { var el = $("#" + id); if (el) el.value = ""; });
       return res;
     });
   }
 
   /* ---------- Rendu ---------- */
-  // Le "shell" (en-tête, formulaire, navigation) n'est dessiné qu'au changement
+  // Le « shell » (en-tête, formulaire, navigation) n'est dessiné qu'au changement
   // d'onglet. Seule la liste est redessinée après un clic, pour ne jamais
   // effacer un formulaire à moitié rempli.
   function renderShell() {
-    if (!me) { login(); return; }
+    if (!me) { if (view === "join") publicJoin(); else login(); return; }
+    var form = tab === "rides" ? rideForm() : tab === "proj" ? projForm() : "";
     $("#app").innerHTML =
-      '<header><h1>Roue libre</h1><p class="sub">Salut ' + esc(me) +
+      "<header>" + eyebrow() + '<h1>Roue libre</h1><p class="sub">Salut ' + esc(me) +
       '. Rien ne t’est poussé : tu regardes quand tu veux. <button class="link" data-act="logout">Changer de prénom</button></p></header>' +
-      '<div id="list"></div>' + (tab === "rides" ? rideForm() : projForm()) +
-      '<nav><div class="in"><button class="tab' + (tab === "rides" ? " on" : "") + '" data-act="tab" data-tab="rides">Sorties</button>' +
-      '<button class="tab' + (tab === "proj" ? " on" : "") + '" data-act="tab" data-tab="proj">Projets</button></div></nav>';
+      '<div id="list"></div>' + form +
+      '<nav><div class="in">' +
+      '<button class="tab' + (tab === "rides" ? " on" : "") + '" data-act="tab" data-tab="rides">Sorties</button>' +
+      '<button class="tab' + (tab === "proj" ? " on" : "") + '" data-act="tab" data-tab="proj">Projets</button>' +
+      '<button class="tab' + (tab === "join" ? " on" : "") + '" data-act="tab" data-tab="join">Rejoindre</button>' +
+      "</div></nav>";
     refreshList();
   }
   function refreshList() {
     var el = $("#list");
-    if (el) el.innerHTML = tab === "rides" ? ridesList() : projList();
+    if (!el) return;
+    el.innerHTML = tab === "rides" ? ridesList() : tab === "proj" ? projList() : joinHtml();
   }
   function apply(promise) {
     if (!promise) return;
-    promise.then(function (d) { data = d; refreshList(); })
-      .catch(function (e) { console.error(e); });
+    promise.then(function (d) { if (d) { data = d; refreshList(); } })
+      .catch(function (e) { console.error(e); flash("Action non enregistrée. Vérifie ta connexion."); });
   }
 
   /* ---------- Actions (un seul écouteur de clic) ---------- */
   var actions = {
     login: doLogin,
     logout: logout,
+    retry: function () { location.reload(); },
+    "forget-code": forgetCode,
+    "join-public": function () { view = "join"; renderShell(); window.scrollTo(0, 0); },
+    "back-login": function () { view = ""; renderShell(); },
+    "create-group": doCreate,
+    "create-done": leaveCreate,
     tab: function (el) { tab = el.dataset.tab; renderShell(); window.scrollTo(0, 0); },
     "ride-go": function (el) { apply(store.setRide(el.dataset.id, me, "go")); },
     "ride-maybe": function (el) { apply(store.setRide(el.dataset.id, me, "maybe")); },
@@ -201,18 +309,47 @@
   };
   document.addEventListener("click", function (e) {
     var el = e.target.closest("[data-act]");
-    if (el && actions[el.dataset.act]) actions[el.dataset.act](el);
+    if (el && actions[el.dataset.act] && store) actions[el.dataset.act](el);
   });
 
-  // Au retour dans l'app, on relit les données (utile avec une base partagée).
+  // Au retour dans l'app, on relit les données (les autres ont pu en ajouter).
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "visible" && me) {
-      store.load().then(function (d) { data = d; refreshList(); });
+    if (document.visibilityState === "visible" && me && store && $("#list")) {
+      store.load().then(function (d) { data = d; refreshList(); }).catch(function () {});
     }
   });
 
   /* ---------- Démarrage ---------- */
-  store.load().then(function (d) { data = d; renderShell(); });
+  function start() {
+    store.setGroup(code);
+    store.load().then(function (d) {
+      data = d; view = "";
+      renderShell();
+    }).catch(function (e) {
+      console.error(e);
+      fatal("Impossible de charger les données. Vérifie ta connexion internet.");
+    });
+  }
+
+  function loadStore() {
+    if (FIREBASE_MODE) {
+      if (!CFG.FIREBASE || !CFG.FIREBASE.apiKey) {
+        return Promise.reject(new Error("Réglages Firebase manquants dans js/config.js"));
+      }
+      return import("./store-firebase.js").then(function (m) { return m.default; });
+    }
+    return Promise.resolve(window.RL_STORE);
+  }
+
+  function boot() {
+    if (FIREBASE_MODE && location.hash === "#creer") { createScreen(); return; }
+    if (me && code) start(); else login();
+  }
+
+  loadStore().then(function (s) { store = s; boot(); }).catch(function (e) {
+    console.error(e);
+    fatal("Impossible de se connecter au groupe. Vérifie ta connexion internet puis rouvre l’app.");
+  });
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", function () {
