@@ -193,7 +193,7 @@
       '<div class="row2"><label>Jour<input id="fd" type="date" min="' + todayISO() + '"></label><label>Heure<input id="ft" type="time" value="09:00"></label></div>' +
       '<label>Point de départ<input id="fp" placeholder="Ex. Place de la mairie"></label>' +
       '<div class="row2"><label>Distance (km)<input id="fk" type="number" inputmode="numeric" placeholder="60"></label><label>Dénivelé (m)<input id="fh" type="number" inputmode="numeric" placeholder="600"></label></div>' +
-      '<label>Allure<select id="fa"><option>Tranquille, 25 km/h</option><option>Soutenue, 28 km/h</option><option>Sportive, 30 km/h et +</option><option>Café, 20 km/h</option></select></label>' +
+      '<label>Type<select id="fa"><option>🚴 Route</option><option>🚵 VTT</option><option>☕ Drink</option></select></label>' +
       '<div class="err" id="fe"></div><button class="cta" data-act="ride-add">Publier la sortie</button></div></details>';
   }
   function addRide() {
