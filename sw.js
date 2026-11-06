@@ -1,7 +1,7 @@
 // Service worker : permet à l'app de s'ouvrir même sans réseau.
 // À chaque modification des fichiers, change le numéro de version
 // pour que les téléphones récupèrent la nouvelle version.
-var CACHE = "roue-libre-v2";
+var CACHE = "roue-libre-v3";
 var CORE = [
   "./",
   "index.html",

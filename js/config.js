@@ -19,7 +19,7 @@ window.RL_CONFIG = {
 
   // "local"    : données gardées dans le téléphone (démo, chacun voit ses données)
   // "firebase" : base partagée entre tous les membres (voir README)
-  BACKEND: "local",
+  BACKEND: "firebase",
 
   // Mode "local" uniquement : code d'entrée de la démo.
   // En mode "firebase", ce champ n'est PAS utilisé : le code est choisi à la
@@ -30,9 +30,9 @@ window.RL_CONFIG = {
   // (Paramètres du projet → Général → Vos applications → Configuration du SDK).
   // Ces valeurs ne sont pas secrètes : la protection vient des règles Firestore.
   FIREBASE: {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    appId: ""
+    apiKey: "AIzaSyBfAHWNBoUStpzEweyXddlOatq0vmrP4Ro",
+    authDomain: "roue-libre-69409.firebaseapp.com",
+    projectId: "roue-libre-69409",
+    appId: "1:284863937287:web:1053b01c5317f9ceeea3a2"
   }
 };
