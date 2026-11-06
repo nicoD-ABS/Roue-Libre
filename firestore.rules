@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Le code du groupe fait partie du chemin : groups/{code}/...
+    // Personne ne peut lister « groups », donc il faut connaître le code.
+    match /groups/{code} {
+
+      // Fiche du groupe : on peut la lire (c'est ce qui valide le code saisi)
+      // et la créer une seule fois, jamais la modifier ni la supprimer.
+      match /meta/{doc} {
+        allow get: if true;
+        allow create: if true;
+        allow list, update, delete: if false;
+      }
+
+      // Sorties et projets : accessibles uniquement si le groupe existe.
+      match /rides/{id} {
+        allow read, write: if exists(/databases/$(database)/documents/groups/$(code)/meta/info);
+      }
+      match /projects/{id} {
+        allow read, write: if exists(/databases/$(database)/documents/groups/$(code)/meta/info);
+      }
+    }
+  }
+}

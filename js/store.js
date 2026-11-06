@@ -52,6 +52,13 @@
   function ensure() { if (!db) db = read(); }
 
   var LocalStore = {
+    // Accès : en local, le code est celui de config.js.
+    checkCode: function (code) {
+      return Promise.resolve(String(code).trim().toLowerCase() === String(global.RL_CONFIG.GROUP_CODE).toLowerCase());
+    },
+    setGroup: function () {},
+    createGroup: function () { return Promise.reject(new Error("Non disponible en mode démo")); },
+
     load: function () { ensure(); return Promise.resolve(clone(db)); },
 
     // kind : "go" ou "maybe". Re-cliquer retire la réponse.

@@ -1,7 +1,7 @@
 {
-  "name": "Roue libre",
+  "name": "Roue libre · Alps Bike Society",
   "short_name": "Roue libre",
-  "description": "Les sorties vélo du groupe, sans notifications.",
+  "description": "L’app de l’Alps Bike Society : les sorties vélo du groupe, sans notifications.",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",
